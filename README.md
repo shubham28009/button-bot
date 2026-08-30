@@ -1,48 +1,41 @@
-# Premium Telegram Button Maker — GitHub + Railway
+# Premium Custom-Emoji Telegram Button Maker
 
-## What this version does
+This version uses Telegram's current native inline-button features.
 
-Each Telegram user gets an independent button-building session:
+## User workflow
 
-1. User sends or forwards a circle video, video, photo, text post, or other copyable message.
-2. Bot asks for button text.
-3. Bot asks for the button URL.
-4. User chooses a premium emoji style.
-5. User can add unlimited buttons.
-6. User can choose one button per row or two buttons per row.
-7. Bot sends the finished message back to the SAME user.
-8. User forwards the result to any channel/group.
+1. User sends or forwards a post/video/circle video/photo/text to the bot.
+2. User sends the button text together with their own Telegram custom/Premium emoji.
+3. Bot detects the exact custom emoji ID.
+4. User sends the URL.
+5. User chooses a native Telegram button style:
+   - Primary (blue)
+   - Success (green)
+   - Danger (red)
+6. User can add more buttons and choose 1 or 2 buttons per row.
+7. Bot sends the finished post back to the same user.
+8. User forwards it to any channel/group.
 
-The bot does not publish to any channel.
+The bot does NOT publish to channels.
 
-## Telegram styling limitation
+## Important Telegram limitation / requirement
 
-Telegram's Bot API does not let a bot set the actual inline keyboard background color, rounded-corner radius, font, gradients, or custom CSS. The bot therefore styles the button labels with premium emoji/symbols and gives a clean 1-row/2-row layout.
+The Bot API now supports `style` and `icon_custom_emoji_id` on inline keyboard buttons. Custom emoji icons require the bot owner to have Telegram Premium (or the bot to qualify under Telegram's Fragment additional-username condition). Button appearance is ultimately rendered by Telegram clients.
+
+Telegram clients released after February 9, 2026 support the new button styles; older clients may fall back to the normal button appearance.
 
 ## Railway
 
-Deploy these files to GitHub, then deploy the repository on Railway.
+Deploy the files to GitHub and deploy the repository on Railway.
 
-Add the environment variable:
+Set:
 
 `BOT_TOKEN=your_BotFather_token`
 
-Railway can use the included Dockerfile automatically.
-
-The bot uses polling, so no public webhook URL is required.
-
-## Local
-
-```bash
-pip install -r requirements.txt
-```
-
-Set `BOT_TOKEN`, then:
-
-```bash
-python bot.py
-```
+The included Dockerfile and Procfile are Railway-ready.
 
 ## Important
 
-Telegram protected-content/restricted messages may not be copyable by bots. If one fails, send the media directly to the bot.
+Do not paste the BotFather token into GitHub. Store it only in Railway Variables.
+
+Protected/restricted Telegram content may not be copyable by bots.
