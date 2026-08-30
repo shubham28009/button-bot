@@ -1,41 +1,32 @@
-# Premium Custom-Emoji Telegram Button Maker
+# FIXED Premium Custom Emoji Button Maker
 
-This version uses Telegram's current native inline-button features.
+This version fixes the duplicate/wrong-emoji problem.
 
-## User workflow
+When the user sends a Telegram custom/Premium emoji + button text, the bot:
+1. Reads the actual `custom_emoji_id` from the Telegram message entity.
+2. Removes that custom emoji from the visible button text.
+3. Sends the exact ID as `icon_custom_emoji_id`.
+4. The result should therefore show the custom emoji as the button icon, not as a normal emoji after the text.
 
-1. User sends or forwards a post/video/circle video/photo/text to the bot.
-2. User sends the button text together with their own Telegram custom/Premium emoji.
-3. Bot detects the exact custom emoji ID.
-4. User sends the URL.
-5. User chooses a native Telegram button style:
-   - Primary (blue)
-   - Success (green)
-   - Danger (red)
-6. User can add more buttons and choose 1 or 2 buttons per row.
-7. Bot sends the finished post back to the same user.
-8. User forwards it to any channel/group.
+Example input:
+[YOUR CUSTOM EMOJI] FREE VIP
 
-The bot does NOT publish to channels.
+Button text:
+FREE VIP
 
-## Important Telegram limitation / requirement
+Button icon:
+YOUR EXACT TELEGRAM CUSTOM EMOJI
 
-The Bot API now supports `style` and `icon_custom_emoji_id` on inline keyboard buttons. Custom emoji icons require the bot owner to have Telegram Premium (or the bot to qualify under Telegram's Fragment additional-username condition). Button appearance is ultimately rendered by Telegram clients.
-
-Telegram clients released after February 9, 2026 support the new button styles; older clients may fall back to the normal button appearance.
+It also supports native Telegram button styles (Primary, Success, Danger) and 1/2 buttons per row.
 
 ## Railway
 
-Deploy the files to GitHub and deploy the repository on Railway.
+Replace the existing `bot.py`, `requirements.txt`, `Dockerfile`, `Procfile`, and README in GitHub with these files.
 
-Set:
+Keep the Railway variable:
 
-`BOT_TOKEN=your_BotFather_token`
+`BOT_TOKEN=your_bot_token`
 
-The included Dockerfile and Procfile are Railway-ready.
+Do not put the token in GitHub.
 
-## Important
-
-Do not paste the BotFather token into GitHub. Store it only in Railway Variables.
-
-Protected/restricted Telegram content may not be copyable by bots.
+After pushing the update, redeploy/restart the Railway service.

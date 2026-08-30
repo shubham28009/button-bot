@@ -46,37 +46,77 @@ class Session:
 sessions: dict[int, Session] = {}
 
 
-def get_session(user_id: int) -> Session:
-    return sessions.setdefault(user_id, Session())
+def get_session(uid: int) -> Session:
+    return sessions.setdefault(uid, Session())
 
 
-def clear_session(user_id: int) -> None:
-    sessions.pop(user_id, None)
+def clear_session(uid: int) -> None:
+    sessions.pop(uid, None)
 
 
 def valid_url(url: str) -> bool:
     return url.startswith(("https://", "http://", "tg://"))
 
 
-def extract_custom_emoji_id(message) -> str | None:
-    """Return the first custom emoji document id in the user's message."""
+def utf16_slice(text: str, start_units: int, length_units: int) -> str:
+    """Telegram entity offsets use UTF-16 code units."""
+    raw = text.encode("utf-16-le")
+    start = start_units * 2
+    end = start + length_units * 2
+    return raw[start:end].decode("utf-16-le")
+
+
+def remove_custom_emoji_from_text(message) -> tuple[str, str | None]:
+    """
+    Find the exact Telegram custom emoji entity and remove ONLY that emoji
+    from the visible button text. Return (clean_text, custom_emoji_id).
+    """
+    text = message.text or ""
     entities = message.entities or []
-    for entity in entities:
-        if entity.type == "custom_emoji" and entity.custom_emoji_id:
-            return entity.custom_emoji_id
-    return None
+
+    custom_entities = [
+        e for e in entities
+        if e.type == "custom_emoji" and e.custom_emoji_id
+    ]
+
+    if not custom_entities:
+        return text.strip(), None
+
+    # Use the first custom emoji as the button icon.
+    icon_entity = custom_entities[0]
+    custom_emoji_id = icon_entity.custom_emoji_id
+
+    # Remove all custom emoji entities from the visible text.
+    # Work backwards so offsets remain valid.
+    clean = text
+    for entity in sorted(
+        custom_entities,
+        key=lambda e: e.offset,
+        reverse=True,
+    ):
+        start = entity.offset * 2
+        end = (entity.offset + entity.length) * 2
+        raw = clean.encode("utf-16-le")
+        clean = (raw[:start] + raw[end:]).decode("utf-16-le")
+
+    return " ".join(clean.split()), custom_emoji_id
 
 
 def style_keyboard() -> InlineKeyboardMarkup:
-    # Native Telegram button styles. Colors are controlled by Telegram clients.
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🔵 Blue / Primary", callback_data="style:primary"),
-                InlineKeyboardButton("🟢 Green / Success", callback_data="style:success"),
+                InlineKeyboardButton(
+                    "🔵 Blue / Primary", callback_data="style:primary"
+                ),
+                InlineKeyboardButton(
+                    "🟢 Green / Success", callback_data="style:success"
+                ),
             ],
             [
-                InlineKeyboardButton("🔴 Red / Danger", callback_data="style:danger"),
+                InlineKeyboardButton(
+                    "🔴 Red / Danger", callback_data="style:danger"
+                ),
             ],
         ]
     )
@@ -93,29 +133,29 @@ def control_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("👁 Preview", callback_data="action:preview"),
                 InlineKeyboardButton("✅ Finish", callback_data="action:finish"),
             ],
-            [
-                InlineKeyboardButton("🗑 Cancel", callback_data="action:cancel"),
-            ],
+            [InlineKeyboardButton("🗑 Cancel", callback_data="action:cancel")],
         ]
     )
 
 
 def build_markup(buttons: list[Button], per_row: int) -> InlineKeyboardMarkup:
     rows = []
-
     for i in range(0, len(buttons), per_row):
         row = []
-        for button in buttons[i : i + per_row]:
+        for b in buttons[i:i + per_row]:
+            # IMPORTANT:
+            # b.text contains NO custom emoji.
+            # The exact Telegram custom emoji is supplied separately as
+            # icon_custom_emoji_id, so Telegram renders it as the button icon.
             row.append(
                 InlineKeyboardButton(
-                    text=button.text,
-                    url=button.url,
-                    style=button.style,
-                    icon_custom_emoji_id=button.custom_emoji_id,
+                    text=b.text,
+                    url=b.url,
+                    style=b.style,
+                    icon_custom_emoji_id=b.custom_emoji_id,
                 )
             )
         rows.append(row)
-
     return InlineKeyboardMarkup(rows)
 
 
@@ -125,15 +165,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👑 <b>PREMIUM BUTTON MAKER</b>\n\n"
-        "Send or forward your post first.\n\n"
-        "Then, for each button, you will send the <b>button text "
-        "+ your own Telegram custom emoji</b>. I will use that exact "
-        "custom emoji as the button icon — I will NOT add my own emoji.\n\n"
-        "After that you can choose:\n"
-        "🔵 Blue / Primary\n"
-        "🟢 Green / Success\n"
-        "🔴 Red / Danger\n\n"
-        "Telegram renders the native rounded button shape.",
+        "1️⃣ Send/forward your post.\n"
+        "2️⃣ Send your Telegram Premium/custom emoji + button text "
+        "in the SAME message.\n"
+        "3️⃣ Send the URL.\n"
+        "4️⃣ Choose the native Telegram button colour.\n\n"
+        "Your custom emoji will be placed as the <b>actual button icon</b> — "
+        "it will NOT remain at the end of the button text.",
         parse_mode="HTML",
     )
     return WAIT_POST
@@ -156,11 +194,11 @@ async def receive_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "✅ <b>POST RECEIVED</b>\n\n"
-        "Now send the <b>button text</b> and put your Telegram "
-        "<b>Premium/custom emoji</b> before it.\n\n"
-        "For example, send your own custom emoji +:\n"
-        "<code>Want 1000$ Giveaway?</code>\n\n"
-        "I will use only the custom emoji you send.",
+        "Now send your <b>Telegram Premium/custom emoji + button text</b> "
+        "in one message.\n\n"
+        "Example: [YOUR CUSTOM EMOJI] FREE VIP\n\n"
+        "I will remove the emoji from the text and use that exact emoji "
+        "as the button icon.",
         parse_mode="HTML",
     )
     return WAIT_BUTTON_TEXT
@@ -168,11 +206,18 @@ async def receive_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def receive_button_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    text = (message.text or "").strip()
+    text, custom_emoji_id = remove_custom_emoji_from_text(message)
+
+    if not custom_emoji_id:
+        await message.reply_text(
+            "❌ I didn't detect a Telegram custom/Premium emoji.\n\n"
+            "Send your actual Telegram custom emoji followed by the button text."
+        )
+        return WAIT_BUTTON_TEXT
 
     if not text:
         await message.reply_text(
-            "Please send text together with your Telegram custom emoji."
+            "❌ Button text is empty. Send your custom emoji + text again."
         )
         return WAIT_BUTTON_TEXT
 
@@ -180,25 +225,15 @@ async def receive_button_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         await message.reply_text("Keep the button text under 64 characters.")
         return WAIT_BUTTON_TEXT
 
-    custom_emoji_id = extract_custom_emoji_id(message)
-
-    if not custom_emoji_id:
-        await message.reply_text(
-            "❌ I didn't detect a Telegram custom emoji in that message.\n\n"
-            "Please use one of your Telegram custom/Premium emojis in the "
-            "button text and send it again."
-        )
-        return WAIT_BUTTON_TEXT
-
     s = get_session(update.effective_user.id)
     s.current_text = text
     s.current_custom_emoji_id = custom_emoji_id
 
     await message.reply_text(
-        "✅ <b>Your custom emoji was detected.</b>\n\n"
-        "Now send the button URL.\n"
-        "Example:\n"
-        "<code>https://t.me/yourchannel</code>",
+        "✅ <b>EXACT CUSTOM EMOJI DETECTED</b>\n\n"
+        "The emoji will be used as the button icon.\n"
+        "It will NOT be included in the button text.\n\n"
+        "Now send the button URL.",
         parse_mode="HTML",
     )
     return WAIT_BUTTON_URL
@@ -216,14 +251,16 @@ async def receive_button_url(update: Update, context: ContextTypes.DEFAULT_TYPE)
     s = get_session(update.effective_user.id)
 
     if not s.current_text or not s.current_custom_emoji_id:
-        await update.message.reply_text("Button data is missing. Send the button text again.")
+        await update.message.reply_text(
+            "Button data is missing. Send the custom emoji + button text again."
+        )
         return WAIT_BUTTON_TEXT
 
     s.current_url = url
 
     await update.message.reply_text(
         "🎨 <b>CHOOSE BUTTON COLOUR</b>\n\n"
-        "These are Telegram's native button styles.",
+        "These are native Telegram button styles.",
         parse_mode="HTML",
         reply_markup=style_keyboard(),
     )
@@ -236,16 +273,16 @@ async def choose_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     uid = update.effective_user.id
     s = get_session(uid)
-
     style = query.data.split(":", 1)[1]
+
     if style not in {"primary", "success", "danger"}:
         return WAIT_STYLE
 
     if not s.current_text or not s.current_url or not s.current_custom_emoji_id:
-        await query.edit_message_text(
-            "❌ Button data expired. Send the post again with /start."
-        )
         clear_session(uid)
+        await query.edit_message_text(
+            "❌ Button data expired. Send /start and try again."
+        )
         return WAIT_POST
 
     s.buttons.append(
@@ -258,8 +295,8 @@ async def choose_style(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     s.current_text = None
-    s.current_url = None
     s.current_custom_emoji_id = None
+    s.current_url = None
 
     await query.edit_message_text(
         f"✅ <b>Button saved</b>\n\n"
@@ -278,23 +315,26 @@ async def action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     uid = update.effective_user.id
     s = get_session(uid)
-    name = query.data.split(":", 1)[1]
+    action_name = query.data.split(":", 1)[1]
 
-    if name == "cancel":
+    if action_name == "cancel":
         clear_session(uid)
-        await query.edit_message_text("🗑 Cancelled. Send /start for a new post.")
+        await query.edit_message_text(
+            "🗑 <b>Cancelled.</b>\n\nSend /start for a new post.",
+            parse_mode="HTML",
+        )
         return WAIT_POST
 
-    if name == "add":
+    if action_name == "add":
         await query.edit_message_text(
             "➕ <b>ADD ANOTHER BUTTON</b>\n\n"
-            "Send your own Telegram custom emoji + the button text.\n"
-            "I will use only the emoji you send.",
+            "Send your own Telegram custom/Premium emoji + button text "
+            "in the SAME message.",
             parse_mode="HTML",
         )
         return WAIT_BUTTON_TEXT
 
-    if name == "two":
+    if action_name == "two":
         if len(s.buttons) < 2:
             await query.edit_message_text(
                 "Add at least 2 buttons first.",
@@ -310,7 +350,7 @@ async def action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return WAIT_ACTION
 
-    if name == "preview":
+    if action_name == "preview":
         if not s.buttons:
             await query.edit_message_text(
                 "No buttons yet.",
@@ -321,20 +361,28 @@ async def action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=uid,
             text=(
-                "👁 <b>BUTTON PREVIEW</b>\n"
-                "These are Telegram-native styled buttons with the custom "
-                "emoji IDs you supplied."
+                "👁 <b>BUTTON PREVIEW</b>\n\n"
+                "The custom emoji is passed as the Telegram button icon."
             ),
             parse_mode="HTML",
             reply_markup=build_markup(s.buttons, s.per_row),
         )
         return WAIT_ACTION
 
-    if name == "finish":
+    if action_name == "finish":
         if not s.source_chat_id or not s.source_message_id:
             clear_session(uid)
-            await query.edit_message_text("❌ Session expired. Send the post again.")
+            await query.edit_message_text(
+                "❌ Session expired. Send the post again."
+            )
             return WAIT_POST
+
+        if not s.buttons:
+            await query.edit_message_text(
+                "Add at least one button first.",
+                reply_markup=control_keyboard(),
+            )
+            return WAIT_ACTION
 
         try:
             await context.bot.copy_message(
@@ -346,18 +394,17 @@ async def action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await query.edit_message_text(
                 "✅ <b>POST READY</b>\n\n"
-                "The finished post is above.\n"
-                "Forward it to your channel/group.",
+                "Your exact custom emoji is used as the button icon.\n"
+                "The emoji is no longer duplicated inside the button text.\n\n"
+                "Forward the finished post anywhere.",
                 parse_mode="HTML",
             )
-        except Exception as exc:
-            logger.exception("Unable to send styled custom-emoji buttons: %s", exc)
-
+        except Exception:
+            logger.exception("Failed to create custom-emoji buttons")
             await query.edit_message_text(
                 "❌ Telegram rejected the custom emoji button.\n\n"
-                "Make sure the bot owner has Telegram Premium, "
-                "and use a valid Telegram custom emoji. "
-                "Older Telegram clients may also not show the new button styling.",
+                "Make sure the bot is running on the updated code and that "
+                "the custom emoji is a valid Telegram custom emoji.",
                 parse_mode="HTML",
             )
 
@@ -369,21 +416,23 @@ async def action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clear_session(update.effective_user.id)
-    await update.message.reply_text("🗑 Cancelled. Send /start for a new post.")
+    await update.message.reply_text(
+        "🗑 Cancelled. Send /start for a new post."
+    )
     return WAIT_POST
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👑 <b>HOW IT WORKS</b>\n\n"
-        "1. Send/forward your post.\n"
-        "2. Send your own Telegram custom emoji + button text.\n"
-        "3. Send the URL.\n"
-        "4. Choose Blue, Green or Red native Telegram button style.\n"
-        "5. Add more buttons or choose 2-per-row.\n"
-        "6. Finish.\n"
-        "7. Forward the completed post anywhere.\n\n"
-        "I do not add my own emoji.",
+        "👑 <b>HOW TO USE</b>\n\n"
+        "1. Send/forward the post.\n"
+        "2. Send YOUR Telegram custom emoji + button text together.\n"
+        "3. Send URL.\n"
+        "4. Choose button colour.\n"
+        "5. Add more buttons if needed.\n"
+        "6. Finish.\n\n"
+        "The custom emoji is extracted from the Telegram entity and used "
+        "as the actual button icon. It is removed from the visible text.",
         parse_mode="HTML",
     )
 
@@ -421,7 +470,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("cancel", cancel))
 
-    logger.info("Premium Custom-Emoji Button Maker is running...")
+    logger.info("Custom Premium Emoji Button Maker is running...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
